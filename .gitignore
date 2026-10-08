@@ -1,0 +1,14 @@
+# Python 暫存檔
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虛擬環境
+venv/
+env/
+.env
+
+# 系統檔案
+.DS_Store
+Thumbs.db
