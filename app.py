@@ -87,7 +87,87 @@ else:
 # ==========================================
 # 4. 匯出按鈕
 # ==========================================
+# ==========================================
+# 4. 真正產生並匯出 PDF
+# ==========================================
+import urllib.request
+import os
+from fpdf import FPDF
+import io
+
 if st.button("📄 產生正式 PDF", type="primary"):
-    # 這裡會觸發後台的 FPDF 程式
-    st.success(f"正在以「{layout_style}」格式產出 PDF...")
-    # 實際開發時，這裡會呼叫 def generate_pdf(data_list, layout_style)
+    if len(st.session_state.vo_list) == 0:
+        st.error("請先新增至少一筆工項紀錄！")
+    else:
+        with st.spinner("PDF 產生中，這可能需要幾秒鐘..."):
+            try:
+                # 1. 確保雲端主機有中文字型 (避免亂碼)
+                font_path = "fireflysung.ttf"
+                if not os.path.exists(font_path):
+                    # 如果沒有字型，自動下載開源中文字型
+                    font_url = "https://github.com/hoishing/open-chinese-fonts/raw/master/fireflysung.ttf"
+                    urllib.request.urlretrieve(font_url, font_path)
+
+                # 2. 初始化 A4 PDF (寬210mm x 高297mm)
+                pdf = FPDF(orientation="P", unit="mm", format="A4")
+                pdf.add_font("Chinese", "", font_path, uni=True)
+                
+                # 計算排版尺寸
+                items_per_page = 2 if "2x2" in layout_style else 3
+                row_height = 125 if items_per_page == 2 else 80
+                img_w = 85  # 照片寬度
+                img_h = row_height - 15 # 照片高度
+                
+                for i, item in enumerate(st.session_state.vo_list):
+                    # 每達到指定數量，自動換新頁並加上標題
+                    if i % items_per_page == 0:
+                        pdf.add_page()
+                        pdf.set_font("Chinese", size=16)
+                        pdf.cell(0, 12, "工程變更 (VO) 施工前後對照表", ln=1, align="C")
+                        pdf.ln(5) # 加上一點間距
+
+                    # 寫入 VO 編號與工項描述
+                    pdf.set_font("Chinese", size=12)
+                    pdf.cell(0, 10, f"{item['vo_num']} : {item['desc']}", ln=1)
+                    
+                    y_img = pdf.get_y() # 記住當前高度座標
+                    
+                    # 處理左側：事前照片 (Before)
+                    if item['before']:
+                        img_b = Image.open(item['before'])
+                        # fpdf2 會自動等比例縮放圖片放入框內
+                        pdf.image(img_b, x=15, y=y_img, w=img_w, h=img_h, keep_aspect_ratio=True)
+                    else:
+                        pdf.rect(15, y_img, img_w, img_h)
+                        pdf.text(15 + img_w/2 - 15, y_img + img_h/2, "無事前照片")
+
+                    # 處理右側：完成照片 (After)
+                    if item['after']:
+                        img_a = Image.open(item['after'])
+                        pdf.image(img_a, x=110, y=y_img, w=img_w, h=img_h, keep_aspect_ratio=True)
+                    else:
+                        # 未完成：畫一個灰色框並標示留空
+                        pdf.set_draw_color(150, 150, 150)
+                        pdf.rect(110, y_img, img_w, img_h)
+                        pdf.set_text_color(150, 150, 150)
+                        pdf.text(110 + img_w/2 - 20, y_img + img_h/2, "未完成 (留空)")
+                        pdf.set_draw_color(0, 0, 0)
+                        pdf.set_text_color(0, 0, 0)
+                    
+                    # 將座標往下推，準備畫下一列
+                    pdf.set_y(y_img + img_h + 10)
+
+                # 3. 輸出成位元組並觸發 Streamlit 下載
+                pdf_bytes = pdf.output()
+                
+                st.success("✅ PDF 生成成功！請點擊下方按鈕下載。")
+                st.download_button(
+                    label="⬇️ 點擊下載 PDF 檔案",
+                    data=bytes(pdf_bytes),
+                    file_name="VO_Report_對照表.pdf",
+                    mime="application/pdf",
+                    type="primary"
+                )
+
+            except Exception as e:
+                st.error(f"生成 PDF 時發生錯誤: {e}")
