@@ -2,7 +2,13 @@ import logging
 
 import streamlit as st
 
-from pdf_export import build_pdf, prepare_photo
+from pdf_export import (
+    VO_NUMBER,
+    WORK_DESCRIPTION,
+    build_pdf,
+    prepare_logo,
+    prepare_photo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +23,44 @@ if "pdf_data" not in st.session_state:
 st.title("VO 施工對照表系統")
 st.caption("紀錄暫存於本次連線；離開或重新整理網頁前，請先下載 PDF。")
 
-# ================= 上傳區塊 =================
+# ================= PDF 報告設定 =================
+logo_data = None
+settings_valid = True
+with st.expander("PDF 報告設定／公司 Logo", expanded=True):
+    company_name = st.text_input(
+        "公司名稱", key="report_company_name", max_chars=80,
+        placeholder="輸入正式公司名稱（選填）",
+    )
+    company_logo = st.file_uploader(
+        "公司 Logo（選填）", type=["png", "jpg", "jpeg"],
+        key="report_logo_upload",
+        help="建議透明背景 PNG，最多 5 MB。Logo 會等比例置於 PDF 左上角。",
+    )
+    if company_logo is not None:
+        try:
+            logo_data = prepare_logo(company_logo.getvalue())
+        except ValueError as exc:
+            settings_valid = False
+            st.error(str(exc))
+        else:
+            st.image(logo_data, caption="公司 Logo 預覽", width=160)
+    vo_number = st.text_input(
+        "工作指示編號（VO No.）", value=VO_NUMBER,
+        key="report_vo_number", max_chars=60,
+    )
+    work_description = st.text_area(
+        "項目名稱／工程內容", value=WORK_DESCRIPTION,
+        key="report_work_description", max_chars=240, height=90,
+    )
+    st.caption("Logo 與報告資料只用於本次 PDF，未設永久保存。")
+
+# 改動品牌或報告資料後，不讓舊 PDF 以新設定的名義被下載。
+pdf_signature = (company_name, vo_number, work_description, logo_data)
+if st.session_state.get("pdf_signature") != pdf_signature or not settings_valid:
+    st.session_state.pdf_data = None
+    st.session_state.pdf_signature = pdf_signature
+
+# ================= 相片上傳區塊 =================
 before_photo = st.file_uploader("上傳 事前 (Before)", type=["png", "jpg", "jpeg"])
 after_photo = st.file_uploader(
     "上傳 完成 (After) - 未完工請留空", type=["png", "jpg", "jpeg"]
@@ -41,7 +84,6 @@ if st.button("儲存此筆紀錄"):
             st.error(str(exc))
         else:
             st.session_state.vo_records.append(record)
-            # 新增工項後，舊 PDF 不再代表最新紀錄。
             st.session_state.pdf_data = None
             st.success(f"第 {len(st.session_state.vo_records)} 筆紀錄已成功儲存！")
 
@@ -74,11 +116,19 @@ st.divider()
 if st.button("產生正式 PDF"):
     if not st.session_state.vo_records:
         st.error("請先新增至少一筆工項紀錄！")
+    elif not settings_valid:
+        st.error("請先修正公司 Logo 檔案，再產生 PDF。")
     else:
         st.session_state.pdf_data = None
         try:
             with st.spinner("正在產生 PDF，請稍候..."):
-                st.session_state.pdf_data = build_pdf(st.session_state.vo_records)
+                st.session_state.pdf_data = build_pdf(
+                    st.session_state.vo_records,
+                    company_name=company_name,
+                    logo_data=logo_data,
+                    vo_number=vo_number,
+                    work_description=work_description,
+                )
         except (FileNotFoundError, ValueError) as exc:
             st.error(str(exc))
         except Exception:
@@ -87,7 +137,6 @@ if st.button("產生正式 PDF"):
         else:
             st.success("PDF 已產生，請按下方按鈕下載。")
 
-# 放在產生按鈕的 if 區塊外，重新執行時仍保留下載入口。
 if st.session_state.pdf_data:
     st.download_button(
         label="下載正式 PDF",
