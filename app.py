@@ -58,43 +58,59 @@ if st.button("📄 產生正式 PDF"):
     else:
         st.success("🔄 正在產生 PDF，請稍候...")
         
-        # 【修正重點 1】：必須在處理相片迴圈之前，先建立 pdf 物件
         from fpdf import FPDF
+        import tempfile
+        import os
+        
+        # 1. 初始化 PDF
         pdf = FPDF()
         
-        # 💡 如果你有設定中文字型 (例如 FireflySung)，請在這裡載入：
-        # pdf.add_font("Firefly", "", "你的中文字型檔徑.ttf", uni=True)
+        # (如果你有中文字型，可以在這裡載入。如果沒有，請先註解掉，以免報錯)
+        # pdf.add_font("Firefly", "", "FireflySung.ttf", uni=True)
         # pdf.set_font("Firefly", size=12)
         
-        pdf.add_page() # 新增 PDF 的第一頁
-        
-        # 【修正重點 2】：接著才開始執行讀取與貼上圖片的迴圈
+        # 2. 處理每一筆相片紀錄
         for idx, record in enumerate(st.session_state.vo_records):
+            pdf.add_page() # 每筆紀錄獨立一頁
             
-            import tempfile
-            import os
-            
-            # 1. 將「事前相片」寫入暫存檔
+            # 寫入事前相片暫存
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_before:
                 tmp_before.write(record["before_img"])
                 tmp_before_path = tmp_before.name
             
-            # 2. 將「完成相片」寫入暫存檔
+            # 寫入事後相片暫存 (如果有)
             tmp_after_path = None
             if record["after_img"]:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_after:
                     tmp_after.write(record["after_img"])
                     tmp_after_path = tmp_after.name
             
-            # 3. 讓 pdf 物件讀取暫存檔 (注意這裡使用的是剛建立好的 pdf 變數)
+            # 將圖片貼上 PDF (x, y 座標與寬度 w 可以依照你的排版需求微調)
+            # 這裡設定 Before 在左，After 在右
             pdf.image(tmp_before_path, x=10, y=30, w=90)
             if tmp_after_path:
                 pdf.image(tmp_after_path, x=110, y=30, w=90)
                 
-            # 4. 用完立刻刪除暫存檔
+            # 清理圖片暫存檔
             os.remove(tmp_before_path)
             if tmp_after_path:
                 os.remove(tmp_after_path)
                 
-        # 輸出並提供下載按鈕
-        # ... 接續你的 pdf.output() 或 download_button 程式碼 ...
+        # 3. 將完成的 PDF 匯出為暫存檔，然後讀取成位元組 (Bytes) 交給 Streamlit 下載
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+            pdf.output(tmp_pdf.name)  # 輸出實體 PDF 檔案到伺服器暫存區
+            
+            # 讀取該實體檔案
+            with open(tmp_pdf.name, "rb") as f:
+                pdf_data = f.read()
+                
+        # 清理 PDF 暫存檔
+        os.remove(tmp_pdf.name)
+
+        # 4. 產生綠色的下載按鈕
+        st.download_button(
+            label="✅ 產生成功！點擊這裡下載 PDF 報告",
+            data=pdf_data,
+            file_name="VO_Photographic_Record.pdf",
+            mime="application/pdf"
+        )
