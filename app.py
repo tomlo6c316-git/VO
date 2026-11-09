@@ -51,36 +51,50 @@ st.divider()
 
 # ================= 產生 PDF 區塊 =================
 
+# ================= 產生 PDF 區塊 =================
 if st.button("📄 產生正式 PDF"):
     if len(st.session_state.vo_records) == 0:
         st.error("請先新增至少一筆工項紀錄！")
     else:
         st.success("🔄 正在產生 PDF，請稍候...")
-
-        # 👇 這裡保留你原本初始化 FPDF 的程式碼 (例如 pdf = FPDF(), 加入中文字型等)
-
+        
+        # 【修正重點 1】：必須在處理相片迴圈之前，先建立 pdf 物件
+        from fpdf import FPDF
+        pdf = FPDF()
+        
+        # 💡 如果你有設定中文字型 (例如 FireflySung)，請在這裡載入：
+        # pdf.add_font("Firefly", "", "你的中文字型檔徑.ttf", uni=True)
+        # pdf.set_font("Firefly", size=12)
+        
+        pdf.add_page() # 新增 PDF 的第一頁
+        
+        # 【修正重點 2】：接著才開始執行讀取與貼上圖片的迴圈
         for idx, record in enumerate(st.session_state.vo_records):
-
+            
+            import tempfile
+            import os
+            
             # 1. 將「事前相片」寫入暫存檔
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_before:
                 tmp_before.write(record["before_img"])
                 tmp_before_path = tmp_before.name
-
-            # 2. 將「完成相片」寫入暫存檔 (如果有上傳)
+            
+            # 2. 將「完成相片」寫入暫存檔
             tmp_after_path = None
             if record["after_img"]:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_after:
                     tmp_after.write(record["after_img"])
                     tmp_after_path = tmp_after.name
-
-            # 3. 讓 FPDF 讀取暫存檔路徑 (這裡的座標 x, y, w, h 請替換回你原本的設定)
+            
+            # 3. 讓 pdf 物件讀取暫存檔 (注意這裡使用的是剛建立好的 pdf 變數)
             pdf.image(tmp_before_path, x=10, y=30, w=90)
             if tmp_after_path:
                 pdf.image(tmp_after_path, x=110, y=30, w=90)
-
-            # 4. 讀取完畢後，立即刪除暫存檔釋放空間
+                
+            # 4. 用完立刻刪除暫存檔
             os.remove(tmp_before_path)
             if tmp_after_path:
                 os.remove(tmp_after_path)
-
-        # 👇 這裡保留你原本輸出與下載 PDF 的程式碼 (例如 st.download_button)
+                
+        # 輸出並提供下載按鈕
+        # ... 接續你的 pdf.output() 或 download_button 程式碼 ...
