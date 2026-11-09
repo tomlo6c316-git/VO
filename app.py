@@ -63,12 +63,18 @@ if st.button("📄 產生正式 PDF"):
         import os
         import urllib.request
         
-        # 1. 確保環境中有中文字型 (如果沒有，自動從可靠來源下載)
+                # 1. 確保環境中有中文字型 (如果沒有，自動下載)
         font_path = "FireflySung.ttf"
         if not os.path.exists(font_path):
             st.info("首次產生 PDF：正在下載中文字型檔，請稍候...")
-            font_url = "https://github.com/matomo-org/travis-scripts/raw/master/fonts/FireflySung.ttf"
-            urllib.request.urlretrieve(font_url, font_path)
+            # 使用另一個穩定的 GitHub 來源
+            font_url = "https://raw.githubusercontent.com/shunjiezhan/fpdf-chinese/master/FireflySung.ttf"
+            
+            # 加入 User-Agent 標頭，防止被 GitHub 伺服器拒絕連線
+            req = urllib.request.Request(font_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(font_path, 'wb') as out_file:
+                out_file.write(response.read())
+
 
         # 2. 初始化 PDF 與字型
         pdf = FPDF()
