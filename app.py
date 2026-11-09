@@ -1,145 +1,98 @@
+import logging
+
 import streamlit as st
-import tempfile
-import os
-import io
 
-# 1. 初始化 Session State (確保跨頁面/按鈕點擊時資料不會被清空)
-if 'vo_records' not in st.session_state:
+from pdf_export import build_pdf, prepare_photo
+
+logger = logging.getLogger(__name__)
+
+st.set_page_config(page_title="VO 施工對照表系統")
+
+# Session State 只保留同一瀏覽器連線內的資料，並非永久儲存。
+if "vo_records" not in st.session_state:
     st.session_state.vo_records = []
+if "pdf_data" not in st.session_state:
+    st.session_state.pdf_data = None
 
-# (此處保留你原有的設定，如中文字型下載等)
 st.title("VO 施工對照表系統")
+st.caption("紀錄暫存於本次連線；離開或重新整理網頁前，請先下載 PDF。")
 
 # ================= 上傳區塊 =================
-before_photo = st.file_uploader("上傳 事前 (Before)", type=['png', 'jpg', 'jpeg'])
-after_photo = st.file_uploader("上傳 完成 (After) - 未完工請留空", type=['png', 'jpg', 'jpeg'])
+before_photo = st.file_uploader("上傳 事前 (Before)", type=["png", "jpg", "jpeg"])
+after_photo = st.file_uploader(
+    "上傳 完成 (After) - 未完工請留空", type=["png", "jpg", "jpeg"]
+)
 
-if st.button("💾 儲存此筆紀錄"):
-    if before_photo is not None:
-        # 【關鍵修正】：使用 .getvalue() 將圖片轉成二進位位元組，避免 Streamlit 刷新後遺失檔案實體
-        record = {
-            "before_img": before_photo.getvalue(),
-            "after_img": after_photo.getvalue() if after_photo is not None else None
-        }
-        st.session_state.vo_records.append(record)
-        st.success(f"✅ 第 {len(st.session_state.vo_records)} 筆紀錄已成功儲存！請在下方預覽。")
+if st.button("儲存此筆紀錄"):
+    if before_photo is None:
+        st.error("請至少上傳一張「事前 (Before)」相片。")
     else:
-        st.error("⚠️ 請至少上傳一張「事前 (Before)」相片。")
+        try:
+            # 先驗證及校正手機 EXIF 方向，再儲存獨立的圖片 bytes。
+            record = {
+                "before_img": prepare_photo(before_photo.getvalue()),
+                "after_img": (
+                    prepare_photo(after_photo.getvalue())
+                    if after_photo is not None
+                    else None
+                ),
+            }
+        except ValueError as exc:
+            st.error(str(exc))
+        else:
+            st.session_state.vo_records.append(record)
+            # 新增工項後，舊 PDF 不再代表最新紀錄。
+            st.session_state.pdf_data = None
+            st.success(f"第 {len(st.session_state.vo_records)} 筆紀錄已成功儲存！")
 
 st.divider()
+st.markdown("### 預覽（PDF 每頁 2 項，2×2 排版）")
 
-# ================= 預覽區塊 =================
-st.markdown("### 👁️ 預覽 (1頁 2項 (2x2 排版))")
-
-if len(st.session_state.vo_records) == 0:
+if not st.session_state.vo_records:
     st.info("尚無資料，請在上方新增。")
 else:
     for idx, record in enumerate(st.session_state.vo_records):
         st.write(f"**第 {idx + 1} 項紀錄**")
         col1, col2 = st.columns(2)
-        
         with col1:
-            st.image(record["before_img"], caption="事前 (Before)", use_container_width=True)
-            
+            try:
+                st.image(record["before_img"], caption="事前 (Before)", width="stretch")
+            except Exception:
+                st.error(f"第 {idx + 1} 項事前相片無法預覽，請重新上傳。")
         with col2:
-            if record["after_img"]:
-                st.image(record["after_img"], caption="完成 (After)", use_container_width=True)
+            if record.get("after_img"):
+                try:
+                    st.image(record["after_img"], caption="完成 (After)", width="stretch")
+                except Exception:
+                    st.error(f"第 {idx + 1} 項完成相片無法預覽，請重新上傳。")
             else:
-                st.info("未完工 (自動留空)")
+                st.info("尚未完工（完成相片留空）")
 
 st.divider()
 
 # ================= 產生 PDF 區塊 =================
-
-# ================= 產生 PDF 區塊 =================
-if st.button("📄 產生正式 PDF"):
-    if len(st.session_state.vo_records) == 0:
+if st.button("產生正式 PDF"):
+    if not st.session_state.vo_records:
         st.error("請先新增至少一筆工項紀錄！")
     else:
-        st.success("🔄 正在產生包含排版的 PDF，請稍候...")
-        
-        from fpdf import FPDF
-        import tempfile
-        import os
-        import urllib.request
-        
-                # 1. 確保環境中有中文字型 (如果沒有，自動下載)
-        font_path = "FireflySung.ttf"
-        if not os.path.exists(font_path):
-            st.info("首次產生 PDF：正在下載中文字型檔，請稍候...")
-            # 使用另一個穩定的 GitHub 來源
-            font_url = "https://raw.githubusercontent.com/shunjiezhan/fpdf-chinese/master/FireflySung.ttf"
-            
-            # 加入 User-Agent 標頭，防止被 GitHub 伺服器拒絕連線
-            req = urllib.request.Request(font_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response, open(font_path, 'wb') as out_file:
-                out_file.write(response.read())
+        st.session_state.pdf_data = None
+        try:
+            with st.spinner("正在產生 PDF，請稍候..."):
+                st.session_state.pdf_data = build_pdf(st.session_state.vo_records)
+        except (FileNotFoundError, ValueError) as exc:
+            st.error(str(exc))
+        except Exception:
+            logger.exception("VO PDF generation failed")
+            st.error("PDF 產生失敗，請查看部署平台日誌，並確認已安裝 requirements.txt。")
+        else:
+            st.success("PDF 已產生，請按下方按鈕下載。")
 
-
-        # 2. 初始化 PDF 與字型
-        pdf = FPDF()
-        # 加入支援 Unicode 的中文字型
-        pdf.add_font("Firefly", "", font_path, uni=True) 
-        
-        # 3. 處理每一筆相片紀錄，加入文字與排版
-        for idx, record in enumerate(st.session_state.vo_records):
-            pdf.add_page() 
-            
-            # --- 【排版設計：頁面抬頭】 ---
-            pdf.set_font("Firefly", size=18)
-            pdf.set_text_color(0, 51, 102) # 深藍色字體
-            pdf.cell(200, 15, txt="相片紀錄 PHOTOGRAPHIC RECORD", ln=True, align='C')
-            
-            # --- 【排版設計：工項與編號資料】 ---
-            pdf.set_font("Firefly", size=12)
-            pdf.set_text_color(0, 0, 0) # 黑色字體
-            pdf.cell(200, 8, txt="工作指示編號 (VO No.): OBLV40777", ln=True, align='C')
-            pdf.cell(200, 8, txt=f"項目: L08 Sample Floor 拆石膏板 Furring - 紀錄 {idx+1}", ln=True, align='C')
-            pdf.ln(10) # 換行留白，準備放圖片
-            
-            # --- 【相片處理】 ---
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_before:
-                tmp_before.write(record["before_img"])
-                tmp_before_path = tmp_before.name
-            
-            tmp_after_path = None
-            if record["after_img"]:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_after:
-                    tmp_after.write(record["after_img"])
-                    tmp_after_path = tmp_after.name
-            
-            # --- 【排版設計：插入圖片與圖片標籤】 ---
-            pdf.set_font("Firefly", size=14)
-            
-            # 左側：事前
-            pdf.text(x=35, y=60, txt="事前 (Before)")
-            pdf.image(tmp_before_path, x=10, y=65, w=90)
-            
-            # 右側：事後
-            if tmp_after_path:
-                pdf.text(x=135, y=60, txt="事後 (After)")
-                pdf.image(tmp_after_path, x=110, y=65, w=90)
-            else:
-                pdf.set_text_color(255, 0, 0) # 紅字提示未完工
-                pdf.text(x=125, y=60, txt="事後 (After) - 尚未完工")
-                pdf.set_text_color(0, 0, 0) # 恢復黑字
-                
-            # 清理圖片暫存檔
-            os.remove(tmp_before_path)
-            if tmp_after_path:
-                os.remove(tmp_after_path)
-                
-        # 4. 匯出 PDF
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-            pdf.output(tmp_pdf.name) 
-            with open(tmp_pdf.name, "rb") as f:
-                pdf_data = f.read()
-        os.remove(tmp_pdf.name)
-
-        # 5. 顯示下載按鈕
-        st.download_button(
-            label="✅ 產生成功！點擊下載排版好的 PDF",
-            data=pdf_data,
-            file_name="VO_Photographic_Record.pdf",
-            mime="application/pdf"
-        )
+# 放在產生按鈕的 if 區塊外，重新執行時仍保留下載入口。
+if st.session_state.pdf_data:
+    st.download_button(
+        label="下載正式 PDF",
+        data=st.session_state.pdf_data,
+        file_name="VO_Photographic_Record.pdf",
+        mime="application/pdf",
+        on_click="ignore",
+    )
