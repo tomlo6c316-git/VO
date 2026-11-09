@@ -2,12 +2,12 @@ import logging
 
 import streamlit as st
 
+from photo_upload_ui import render_photo_uploads
 from pdf_export import (
     VO_NUMBER,
     WORK_DESCRIPTION,
     build_pdf,
     prepare_logo,
-    prepare_photo,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,32 +60,8 @@ if st.session_state.get("pdf_signature") != pdf_signature or not settings_valid:
     st.session_state.pdf_data = None
     st.session_state.pdf_signature = pdf_signature
 
-# ================= 相片上傳區塊 =================
-before_photo = st.file_uploader("上傳 事前 (Before)", type=["png", "jpg", "jpeg"])
-after_photo = st.file_uploader(
-    "上傳 完成 (After) - 未完工請留空", type=["png", "jpg", "jpeg"]
-)
-
-if st.button("儲存此筆紀錄"):
-    if before_photo is None:
-        st.error("請至少上傳一張「事前 (Before)」相片。")
-    else:
-        try:
-            # 先驗證及校正手機 EXIF 方向，再儲存獨立的圖片 bytes。
-            record = {
-                "before_img": prepare_photo(before_photo.getvalue()),
-                "after_img": (
-                    prepare_photo(after_photo.getvalue())
-                    if after_photo is not None
-                    else None
-                ),
-            }
-        except ValueError as exc:
-            st.error(str(exc))
-        else:
-            st.session_state.vo_records.append(record)
-            st.session_state.pdf_data = None
-            st.success(f"第 {len(st.session_state.vo_records)} 筆紀錄已成功儲存！")
+# ================= 批量相片上傳區塊 =================
+render_photo_uploads()
 
 st.divider()
 st.markdown("### 預覽（PDF 每頁 2 項，2×2 排版）")
@@ -113,7 +89,7 @@ else:
 st.divider()
 
 # ================= 產生 PDF 區塊 =================
-if st.button("產生正式 PDF"):
+if st.button("產生正式 PDF", key="generate_pdf"):
     if not st.session_state.vo_records:
         st.error("請先新增至少一筆工項紀錄！")
     elif not settings_valid:

@@ -62,7 +62,7 @@ class PDFExportTests(unittest.TestCase):
     def test_streamlit_pdf_survives_rerun(self):
         app = AppTest.from_file(str(ROOT / "app.py")).run()
         app.session_state["vo_records"] = [{"before_img": photo_bytes(), "after_img": None}]
-        app.button[1].click().run(timeout=30)
+        app.button(key="generate_pdf").click().run(timeout=30)
         self.assertEqual(len(app.exception), 0)
         generated = app.session_state["pdf_data"]
         self.assertTrue(generated.startswith(b"%PDF-"))
@@ -102,7 +102,7 @@ class PDFExportTests(unittest.TestCase):
     def test_settings_change_invalidates_old_pdf(self):
         app = AppTest.from_file(str(ROOT / "app.py")).run()
         app.session_state["vo_records"] = [{"before_img": photo_bytes(), "after_img": None}]
-        app.button[1].click().run(timeout=30)
+        app.button(key="generate_pdf").click().run(timeout=30)
         self.assertTrue(app.session_state["pdf_data"])
         app.text_input[0].set_value("正式公司名稱").run()
         self.assertIsNone(app.session_state["pdf_data"])
@@ -111,7 +111,7 @@ class PDFExportTests(unittest.TestCase):
 
     def test_streamlit_no_records(self):
         app = AppTest.from_file(str(ROOT / "app.py")).run()
-        app.button[1].click().run()
+        app.button(key="generate_pdf").click().run()
         self.assertEqual(len(app.exception), 0)
         self.assertIsNone(app.session_state["pdf_data"])
         self.assertEqual(len(app.error), 1)
